@@ -1,18 +1,37 @@
 from dataclasses import dataclass
 
+
+directionColors = ["#fc8d59","#ffffbf","#91bfdb"]
+highlightColors = ["#440154","#21918c","#fde725"]
 @dataclass
 class Palette:
-    ForwardColor: str = "#88C1EC"
-    BackwardColor: str = "#F68181"
-    EqualColor: str = "#E7E284"
-    HighlightFC: str = "#0A95FF"
-    HighlightBC: str = "#FF0000"
-    HighlightEC: str = "#FDF003"
-    BaseNodeColor: str = "#130B04"
-    HighlightNodecolor: str = "#56f966"
-    SelectedNodeColor: str ="#D064D1"
-    SelectedBorderColor: str = "#FB00FF"
+    BackwardColor: str = directionColors[0]
+    EqualColor: str = directionColors[1]
+    ForwardColor: str = directionColors[2]
 
+
+
+    BaseNodeColor: str = highlightColors[0]
+    HighlightNodecolor: str = highlightColors[1]
+    SelectedBorderColor: str = highlightColors[2]
+
+
+
+def lighten_color(hex_color: str, factor: float = 0.5) -> str:
+    """
+    factor: 0 → original color
+            1 → completely white
+    """
+    hex_color = hex_color.lstrip("#")
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+
+    r = int(r + (255 - r) * factor)
+    g = int(g + (255 - g) * factor)
+    b = int(b + (255 - b) * factor)
+
+    return f"#{r:02X}{g:02X}{b:02X}"
 
 @dataclass(unsafe_hash=True)
 class WikiNode:
@@ -25,5 +44,6 @@ class WikiNode:
     n_visits: int = 0
     time_appearance: int = 0
     y_sorting: int = 0 
-    thickest_son: str = ""
+    thickest_son_weight: int = 0
+    thickest_parent_weight: int = 0
     is_target: bool = False
