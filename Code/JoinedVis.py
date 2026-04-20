@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 import altair as alt
 from cahced_funcs import load_data
-from struct_dataclasses import WikiNode,Palette
+from struct_dataclasses import WikiNode,Palette,lighten_color
 
 
 st.set_page_config(layout="wide")
@@ -21,10 +21,10 @@ CUSTOMPALETTE = Palette()
 EdgeThicknessFilter = 0
 NodeVisitFilter = 0
 
-start_node = "Asteroid"
-target_node = "Viking"
-#start_node = "Brain"
-#target_node = "Telephone"
+#start_node = "Asteroid"
+#target_node = "Viking"
+start_node = "Brain"
+target_node = "Telephone"
 
 # Initialize Session State for Interaction
 if 'graph_selected_node' not in st.session_state:
@@ -47,20 +47,26 @@ df_expanded["n_uses"] = df_expanded.apply(
 st.title("WikiVis")
 with st.sidebar:
     st.header("Controls")
-    EdgeThicknessFilter = st.slider(
-        "Minimum Edge Weight", 
-        min_value=0, 
-        max_value=thickest_of_sons, # Adjust max value based on your data distribution
-        value=0, 
+    # Percentage sliders (0–100)
+    flow_pct = st.slider(
+        "Minimum Edge Weight (%)",
+        min_value=0,
+        max_value=100,
+        value=75,
         step=1
     )
-    NodeVisitFilter = st.slider(
-        "Minimum Node Weight (Sankey)", 
-        min_value=0, 
-        max_value=thickest_of_sons, # Adjust max value based on your data distribution
-        value=0, 
+
+    node_pct = st.slider(
+        "Minimum Node Weight (Sankey) (%)",
+        min_value=0,
+        max_value=100,
+        value=0,
         step=1
     )
+
+    # Convert percentage to actual threshold
+    EdgeThicknessFilter = (flow_pct / 100) * thickest_of_sons
+    NodeVisitFilter = (node_pct / 100) * thickest_of_sons
 #filter nodes
 filtered_first_nodes = []
 for node in first_nodes:
@@ -93,14 +99,39 @@ with st.expander("Graph", expanded=True):
             st.session_state.prev_graph_selected_node = sNode
 
         #Filter by edge weight filter
-        minimum_edge_weight = EdgeThicknessFilter
-        graph_filtered_edges_dict = {}
-        for (src, tgt), w in edges_dict.items():
-            if (src,tgt) not in selected_edges:
-                if w > minimum_edge_weight:
-                    graph_filtered_edges_dict[(src,tgt)] = w
-            else:
-                graph_filtered_edges_dict[(src,tgt)] = w
+
+#--
+        # Total flow
+        total_weight = sum(edges_dict.values())
+
+        # Sort edges by weight descending
+        sorted_edges = sorted(edges_dict.items(), key=lambda x: x[1], reverse=True)
+
+        # Select edges until we reach the desired %
+        threshold = total_weight * (flow_pct / 100)
+
+        cumulative = 0
+        top_edges = set()
+
+        for (edge, w) in sorted_edges:
+            if cumulative >= threshold:
+                break
+            top_edges.add(edge)
+            cumulative += w
+        graph_filtered_edges_dict = {
+        edge: edges_dict[edge]
+        for edge in top_edges
+        }
+#--
+
+        # minimum_edge_weight = EdgeThicknessFilter
+        # graph_filtered_edges_dict = {}
+        # for (src, tgt), w in edges_dict.items():
+        #     if (src,tgt) not in selected_edges:
+        #         if w > minimum_edge_weight:
+        #             graph_filtered_edges_dict[(src,tgt)] = w
+        #     else:
+        #         graph_filtered_edges_dict[(src,tgt)] = w
 
         #Filter nodes based on the edge filter
         graph_valid_nodes = (
@@ -119,10 +150,7 @@ with st.expander("Graph", expanded=True):
    
         #Reduce opacity of unselected nodes, when some node is selected
         nodes = []
-        if sNode != None:
-            opacity = 0.3
-        else:
-            opacity = 1
+        lighten_factor = 0.6 if sNode is not None else 0.0
         #Save node visual properties, iterate groups
         for x_val, group_nodes in groups.items():
             y_cursor = -100 
@@ -143,10 +171,14 @@ with st.expander("Graph", expanded=True):
                     if node.name in first_nodes
                     else CUSTOMPALETTE.BaseNodeColor
                 )
-                #color selected nodes
+
                 is_selected = node.name in graph_selected_nodes
-                if is_selected and node.name == sNode:
-                    color = CUSTOMPALETTE.SelectedNodeColor
+
+                if is_selected:
+                    color = CUSTOMPALETTE.SelectedBorderColor
+                elif sNode is not None:
+                    # fade non-selected nodes by whitening them
+                    color = lighten_color(color, lighten_factor)
                 #save node
                 node_dict = {
                     "name": node.name,
@@ -155,11 +187,10 @@ with st.expander("Graph", expanded=True):
                     "tooltip": {
                         "formatter": f"{node.name}<br>Visits: {node.n_visits}<br>Track_pos: {min(node.track_pos)}"
                     },
-                    "x": -node.shortest_to_target * 100,
+                    "x": -node.shortest_to_target * 500,
                     "y": y,
                     "itemStyle": {
-                        "color": color,
-                        "opacity": opacity
+                        "color": color
                     },
                 }
                 #Add border to selected nodes
@@ -184,24 +215,25 @@ with st.expander("Graph", expanded=True):
         for (src, tgt), w in edges_dict.items():
             is_filtered = (src, tgt) in graph_filtered_edges_dict
             is_selected = (src, tgt) in selected_edges
-
+            if not (is_filtered or is_selected):
+                continue
             opacity = 1 if sNode == None else 0.3
 
             src_dist = nodes_dict[src].shortest_to_target
             tgt_dist = nodes_dict[tgt].shortest_to_target
 
             width = max(
-                min(max_width, w * 0.05 * (total_edge_visits - minimum_edge_weight) / total_edge_visits),
+                min(max_width, w * 0.05 * (total_edge_visits) / total_edge_visits),
                 min_width
             )
 
-            # Determine color
+            # Determine color #TODO highlight
             if src_dist < tgt_dist:
-                color = CUSTOMPALETTE.HighlightBC if is_selected else CUSTOMPALETTE.BackwardColor
+                color =  CUSTOMPALETTE.BackwardColor
             elif src_dist == tgt_dist:
-                color = CUSTOMPALETTE.HighlightEC if is_selected else CUSTOMPALETTE.EqualColor
+                color =  CUSTOMPALETTE.EqualColor
             else:
-                color = CUSTOMPALETTE.HighlightFC if is_selected else CUSTOMPALETTE.ForwardColor
+                color =  CUSTOMPALETTE.ForwardColor
 
             line_style = {
                 "color": color,
@@ -233,9 +265,7 @@ with st.expander("Graph", expanded=True):
                     "data": nodes,
                     "links": links,
                     "roam": True,  # allow pan/zoom
-                    "label": {"show": False},
-                    #"edgeSymbol": ["none", "arrow"],
-                    #"edgeSymbolSize": [0, 10]
+                    "label": {"show": False}
                 }
             ]
         }
@@ -259,14 +289,15 @@ with st.expander("Graph", expanded=True):
             else:
                 st.session_state.prev_graph_selected_node = current
                 st.session_state.graph_selected_node = clicked
-
             st.rerun()
 
     with col2:
         df_expanded["n_duplicates"] = df_expanded.groupby(["name", "link"])["link"].transform("count")
         df_expanded["adjusted_uses"] = df_expanded["n_uses"] / df_expanded["n_duplicates"]
-
-        filtered = df_expanded[df_expanded["name"] == sNode]
+        displayNode = sNode
+        if displayNode == None:
+            displayNode = start_node
+        filtered = df_expanded[df_expanded["name"] == displayNode]
         chart = alt.Chart(filtered).mark_bar().encode(
             x="adjusted_uses:Q",
             y="position:O",
@@ -359,7 +390,7 @@ with st.expander("Sankey", expanded=True):
         else :
             color = CUSTOMPALETTE.BaseNodeColor
         if name == sNode:
-            color = CUSTOMPALETTE.SelectedNodeColor
+            color = CUSTOMPALETTE.SelectedBorderColor #Darken
         if name in graph_valid_nodes:
             opacity = 1
         else:
@@ -370,7 +401,7 @@ with st.expander("Sankey", expanded=True):
                 "itemStyle": {"color": color,
                             "opacity":opacity,
                             "borderColor": CUSTOMPALETTE.SelectedBorderColor, # Pborder
-                            "borderWidth": 3,         # Thickness in pixels
+                            "borderWidth": 3,
                             "borderType": "solid"   
                             },
                 "depth":max_depth-node.depth,
@@ -393,13 +424,13 @@ with st.expander("Sankey", expanded=True):
             opacity = 0.9
         else:
             opacity = 0.1
-        if (src,tgt) in selected_edges:
+        if (src,tgt) in selected_edges: #TODO: highlight
             if final_nodes_dict[src].shortest_to_target < final_nodes_dict[tgt].shortest_to_target:
-                color = CUSTOMPALETTE.HighlightBC
+                color = CUSTOMPALETTE.BackwardColor
             elif final_nodes_dict[src].shortest_to_target == final_nodes_dict[tgt].shortest_to_target:
-                color = CUSTOMPALETTE.HighlightEC
+                color = CUSTOMPALETTE.EqualColor
             else:
-                color = CUSTOMPALETTE.HighlightFC
+                color = CUSTOMPALETTE.ForwardColor
             links.append({
                 "source": src,
                 "target": tgt,
@@ -474,7 +505,7 @@ with st.expander("Sankey", expanded=True):
         st.session_state.graph_selected_node = sankey_event["chart_event"]
         st.rerun()
 
-with st.expander("Charts", expanded=True):
+with st.expander("Global chart", expanded=False):
 
 #Total sum
     df_expanded["relative_uses"] = df_expanded["n_uses"] / df_expanded.groupby("name")["n_uses"].transform("sum")
