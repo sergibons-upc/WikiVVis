@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 directionColors = ["#fc8d59","#ffffbf","#91bfdb"]
-highlightColors = ["#440154","#21918c","#fde725"]
+highlightColors = ["#6e40aa","#1ac7c2","#aff05b"]
 @dataclass
 class Palette:
     BackwardColor: str = directionColors[0]
@@ -47,3 +47,8 @@ class WikiNode:
     thickest_son_weight: int = 0
     thickest_parent_weight: int = 0
     is_target: bool = False
+
+ST_THEME = {
+    "color": ["#000000", "#ff6b6b"],
+    "backgroundColor": "#717171"
+}
