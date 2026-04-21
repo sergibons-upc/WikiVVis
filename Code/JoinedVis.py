@@ -10,13 +10,14 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 import altair as alt
 from cahced_funcs import load_data
-from struct_dataclasses import WikiNode,Palette,lighten_color
+from struct_dataclasses import WikiNode,Palette,lighten_color,ST_THEME
 
 
 st.set_page_config(layout="wide")
+
 #TODO:
 #Recursive Sankey?
-#Fix multiple links to same node count.
+#Fixing global count appearances
 CUSTOMPALETTE = Palette()
 EdgeThicknessFilter = 0
 NodeVisitFilter = 0
@@ -31,17 +32,7 @@ if 'graph_selected_node' not in st.session_state:
     st.session_state.graph_selected_node = None
     st.session_state.prev_graph_selected_node = None
 
-thickest_of_sons, edges_dict, nodes_dict, avg_node_visits,first_nodes, max_length, total_edge_visits, article_links = load_data(start_node, target_node)
-
-df_links = pd.DataFrame(article_links, columns=["name", "links"])
-df_expanded = df_links.explode("links").rename(columns={"links": "link"})
-df_expanded["position"] = df_expanded.groupby("name").cumcount()
-df_expanded["n_uses"] = df_expanded.apply(
-    lambda row: edges_dict[row["name"],row["link"]]
-    if (row["name"], row["link"]) in edges_dict
-    else 0,
-    axis=1
-)
+thickest_of_sons, edges_dict, nodes_dict, avg_node_visits,first_nodes, max_length, total_edge_visits, article_links,df_expanded = load_data(start_node, target_node)
 
 #Slider controls
 st.title("WikiVis")
@@ -75,7 +66,21 @@ for node in first_nodes:
 
 sNode = st.session_state.get("graph_selected_node")
 pNode = st.session_state.get("prev_graph_selected_node")
-PADDING = 0
+
+#Check if any node is selected, then get the node and its children/parents.
+graph_selected_nodes = set()
+selected_edges = set()
+if sNode != None:
+    graph_selected_nodes.add(sNode)
+    for (src,tgt),w in edges_dict.items():
+        if sNode == src:
+            graph_selected_nodes.add(tgt)
+            selected_edges.add((src,tgt))
+        elif sNode == tgt:
+            graph_selected_nodes.add(src)
+            selected_edges.add((src,tgt))
+    st.session_state.prev_graph_selected_node = sNode
+
 #graph
 #with st.container(border=True):
 with st.expander("Graph", expanded=True):
@@ -84,32 +89,13 @@ with st.expander("Graph", expanded=True):
     col1, col2 = st.columns(2, gap="small")
     with col1:
         colWidth = "." #Currently does nothing, waiting to test widths
-        graph_selected_nodes = set()
-        selected_edges = set()
-        #Check if any node is selected, then get the node and its children/parents.
-        if sNode != None:
-            graph_selected_nodes.add(sNode)
-            for (src,tgt),w in edges_dict.items():
-                if sNode == src:
-                    graph_selected_nodes.add(tgt)
-                    selected_edges.add((src,tgt))
-                elif sNode == tgt:
-                    graph_selected_nodes.add(src)
-                    selected_edges.add((src,tgt))
-            st.session_state.prev_graph_selected_node = sNode
-
-        #Filter by edge weight filter
-
 #--
         # Total flow
         total_weight = sum(edges_dict.values())
-
         # Sort edges by weight descending
         sorted_edges = sorted(edges_dict.items(), key=lambda x: x[1], reverse=True)
-
         # Select edges until we reach the desired %
         threshold = total_weight * (flow_pct / 100)
-
         cumulative = 0
         top_edges = set()
 
@@ -123,16 +109,6 @@ with st.expander("Graph", expanded=True):
         for edge in top_edges
         }
 #--
-
-        # minimum_edge_weight = EdgeThicknessFilter
-        # graph_filtered_edges_dict = {}
-        # for (src, tgt), w in edges_dict.items():
-        #     if (src,tgt) not in selected_edges:
-        #         if w > minimum_edge_weight:
-        #             graph_filtered_edges_dict[(src,tgt)] = w
-        #     else:
-        #         graph_filtered_edges_dict[(src,tgt)] = w
-
         #Filter nodes based on the edge filter
         graph_valid_nodes = (
             {src for (src, tgt) in graph_filtered_edges_dict} |
@@ -276,8 +252,11 @@ with st.expander("Graph", expanded=True):
 
         # --- 5. Display in Streamlit ---
         clicked_graph = st_echarts(options=options,
-                                events=events,
-                                    height="600px", key="graph_viz")
+                                    events=events,
+                                    on_select="ignore",
+                                    height="600px", key="graph_viz",
+                                    #theme=ST_THEME
+                                    )
         
         clicked = clicked_graph.get("chart_event")
         if clicked:
@@ -292,16 +271,48 @@ with st.expander("Graph", expanded=True):
             st.rerun()
 
     with col2:
-        df_expanded["n_duplicates"] = df_expanded.groupby(["name", "link"])["link"].transform("count")
-        df_expanded["adjusted_uses"] = df_expanded["n_uses"] / df_expanded["n_duplicates"]
-        displayNode = sNode
-        if displayNode == None:
-            displayNode = start_node
+        displayNode = sNode if sNode is not None else start_node
         filtered = df_expanded[df_expanded["name"] == displayNode]
+
+        df_plot = (
+            filtered
+            .sort_values("position")  # ensures lowest position comes first
+            .drop_duplicates(subset=["link"], keep="first")
+        )
+
+        # Map shortest distances
+        filtered["src_dist"] = filtered["name"].map(
+            lambda x: nodes_dict[x].shortest_to_target
+        )
+        filtered["tgt_dist"] = filtered["link"].map(
+            lambda x: nodes_dict[x].shortest_to_target if x in nodes_dict else 0
+        )
+
+        # Compute direction directly
+        filtered["direction"] = np.where(
+            filtered["src_dist"] < filtered["tgt_dist"], "backward",
+            np.where(
+                filtered["src_dist"] == filtered["tgt_dist"], "equal",
+                "forward"
+            )
+        )
+
         chart = alt.Chart(filtered).mark_bar().encode(
-            x="adjusted_uses:Q",
+            x="n_uses:Q",
             y="position:O",
-            tooltip=["link", "adjusted_uses"]
+            color=alt.Color(
+                "direction:N",
+                scale=alt.Scale(
+                    domain=["forward", "backward", "equal", "none"],
+                    range=[
+                        CUSTOMPALETTE.ForwardColor,
+                        CUSTOMPALETTE.BackwardColor,
+                        CUSTOMPALETTE.EqualColor,
+                        "lightgray"
+                    ]
+                )
+            ),
+            tooltip=["link", "n_uses", "direction"]
         ).properties(
             height=600
         )
@@ -420,11 +431,11 @@ with st.expander("Sankey", expanded=True):
     links = []
     for (src, tgt), w in final_edges_dict.items():
 
-        if w > EdgeThicknessFilter:
+        if (src,tgt) in graph_filtered_edges_dict:
             opacity = 0.9
         else:
             opacity = 0.1
-        if (src,tgt) in selected_edges: #TODO: highlight
+        if (src,tgt) in selected_edges:
             if final_nodes_dict[src].shortest_to_target < final_nodes_dict[tgt].shortest_to_target:
                 color = CUSTOMPALETTE.BackwardColor
             elif final_nodes_dict[src].shortest_to_target == final_nodes_dict[tgt].shortest_to_target:
@@ -497,7 +508,13 @@ with st.expander("Sankey", expanded=True):
     events = {
         "click": "function(params) { return params.data.name; }"
     }   
-    sankey_event = st_echarts(options=options,events=events, height="600px", key="sankey_viz")
+    sankey_event = st_echarts(options=options,
+                              events=events, 
+                              on_select="ignore",
+                              height="600px", 
+                              key="sankey_viz",
+                              #theme=ST_THEME
+                              )
 
     #control click
     if sankey_event["chart_event"]:
@@ -508,19 +525,26 @@ with st.expander("Sankey", expanded=True):
 with st.expander("Global chart", expanded=False):
 
 #Total sum
-    df_expanded["relative_uses"] = df_expanded["n_uses"] / df_expanded.groupby("name")["n_uses"].transform("sum")
-    df_positions = (
-        df_expanded[["position", "adjusted_uses"]]
-        .groupby("position")
-        .sum()
-        .reset_index()
+    df_expanded["relative_uses"] = (
+        df_expanded["n_uses"] /
+        df_expanded.groupby("name")["n_uses"].transform("sum")
     )
+
+    df_unique = df_expanded.drop_duplicates(subset=["name", "position"])
+
+    df_positions = (
+        df_unique.groupby("position", as_index=False)["relative_uses"].sum()
+    )
+
+    df_positions = df_positions.sort_values("position")
+
     chart = alt.Chart(df_positions).mark_bar().encode(
-        x=alt.X("adjusted_uses:Q", title="Average Link Uses"),
-        y=alt.Y("position:O", title="Link Position", sort="ascending"),
-        tooltip=["position", "adjusted_uses"]
+        x=alt.X("relative_uses:Q", title="Total Relative Uses"),
+        y=alt.Y("position:O", sort="ascending", title="Link Position"),
+        tooltip=["position", "relative_uses"]
     ).properties(
         width=600,
         height=400
     )
+    
     st.altair_chart(chart, width='stretch')
