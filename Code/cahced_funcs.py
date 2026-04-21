@@ -9,8 +9,8 @@ from struct_dataclasses import WikiNode
 
 @st.cache_data
 def load_data(start_node, target_node):
-    pathsFinishedDF = pd.read_csv('./data/paths_finished.tsv', sep='\t', comment='#', header=None)
-    articles = pd.read_csv('./data/articles.tsv', sep='\t', comment='#', header=None, names=['name'])
+    pathsFinishedDF = pd.read_csv('./Data/paths_finished.tsv', sep='\t', comment='#', header=None)
+    articles = pd.read_csv('./Data/articles.tsv', sep='\t', comment='#', header=None, names=['name'])
     article_names = articles['name'].apply(unquote).values
 
     def load_matrix(filepath):
@@ -112,7 +112,7 @@ def load_data(start_node, target_node):
     article_links = []
     for node in nodes_dict:
         #load article
-        with open("./data/wikispeedia_articles_html/wpcd/wp/"+str(nodes_dict[node].quoted_name.lower()[0])+"/"+str(nodes_dict[node].quoted_name)+".htm", "r", encoding="utf-8") as file:
+        with open("./Data/wpcd/wp/"+str(nodes_dict[node].quoted_name.lower()[0])+"/"+str(nodes_dict[node].quoted_name)+".htm", "r", encoding="utf-8") as file:
             html_content = file.read()
             soup = BeautifulSoup(html_content, "html.parser")
             # Extract links in order
@@ -131,6 +131,16 @@ def load_data(start_node, target_node):
                     links.append(clean_name)
             article_links.append((node,links))
 
+            df_links = pd.DataFrame(article_links, columns=["name", "links"])
+            df_expanded = df_links.explode("links").rename(columns={"links": "link"})
+            df_expanded["position"] = df_expanded.groupby("name").cumcount()
+            df_expanded["n_uses"] = df_expanded.apply(
+                lambda row: edges_dict[row["name"],row["link"]]
+                if (row["name"], row["link"]) in edges_dict
+                else 0,
+                axis=1
+            )
 
-    return thickest_of_sons, edges_dict, nodes_dict, avg_node_visits,first_nodes, max_length, total_edge_visits, article_links
+
+    return thickest_of_sons, edges_dict, nodes_dict, avg_node_visits,first_nodes, max_length, total_edge_visits, article_links, df_expanded
 
