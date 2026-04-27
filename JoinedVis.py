@@ -11,6 +11,7 @@ from pathlib import Path
 import altair as alt
 from cahced_funcs import load_data
 from struct_dataclasses import WikiNode,Palette,lighten_color,ST_THEME
+import math
 
 
 st.set_page_config(layout="wide")
@@ -123,69 +124,102 @@ with st.expander("Graph", expanded=True):
         groups = dict(sorted(groups.items())) #sort
         for x_val in groups:
             groups[x_val].sort(key=lambda n: n.y_sorting if n.y_sorting is not None else 0)
-   
-        #Reduce opacity of unselected nodes, when some node is selected
-        nodes = []
+
+        max_group_len = max(
+            (sum(1 for node in group if node.name in graph_valid_nodes)
+            for group in groups.values()),
+            default=0
+        )
+        #max_group_len = max((len(group) for group in groups.values()), default=0)
+
+        # --- Constants ---
+        max_node_size = 50
+        min_node_size = 1
+        height = 100
+        ratio = 12/3
+
+        y_gap = height / max_group_len
+        #print(y_gap)
+        stretch = min(max(0.5, max_group_len / 50), 10)
+
+        all_nodes = nodes_dict.values()
+        min_x = min(n.shortest_to_target for n in all_nodes)
+        max_x = max(n.shortest_to_target for n in all_nodes)
+        x_range = max_x - min_x or 1
+
+        max_visits = max(n.n_visits for n in all_nodes)
+
         lighten_factor = 0.6 if sNode is not None else 0.0
-        #Save node visual properties, iterate groups
+
+
+        # --- Helpers ---
+        def compute_color(node, base_color):
+            if node.name in graph_selected_nodes:
+                return CUSTOMPALETTE.SelectedBorderColor
+            if sNode is not None:
+                return lighten_color(base_color, lighten_factor)
+            return base_color
+
+
+        # --- Build nodes ---
+        nodes = []
+
         for x_val, group_nodes in groups.items():
-            y_cursor = -100 
+            y_cursor = 0
+
             for node in group_nodes:
-                node_size = 3 + node.n_visits / 10
-                d = node_size
-                #set start node an extra height.
-                if node.name == start_node:
-                    y = -100 -node_size
-                else:
-                    y = y_cursor + d
-                #nodes not in the filter get dumped, and the iteration restituted, this is if i want to change opacity instead, the structure is already inplace.
                 if node.name not in graph_valid_nodes:
                     continue
-                #Color for nodes (base nodes and first nodes)
-                color = (
+
+                is_start = node.name == start_node
+                is_selected = node.name in graph_selected_nodes
+                # Size
+                norm = math.log1p(node.n_visits) / math.log1p(max_visits)
+                node_size =  min_node_size + (max_node_size - min_node_size) * (norm ** 4)
+                # Base color
+                base_color = (
                     CUSTOMPALETTE.HighlightNodecolor
                     if node.name in first_nodes
                     else CUSTOMPALETTE.BaseNodeColor
                 )
 
-                is_selected = node.name in graph_selected_nodes
+                color = compute_color(node, base_color)
+                # Position
+                y = -node_size/2 if is_start else y_cursor + y_gap
+                # X scaling
+                x = -((node.shortest_to_target - min_x) / x_range) * height * ratio
 
-                if is_selected:
-                    color = CUSTOMPALETTE.SelectedBorderColor
-                elif sNode is not None:
-                    # fade non-selected nodes by whitening them
-                    color = lighten_color(color, lighten_factor)
-                #save node
                 node_dict = {
                     "name": node.name,
                     "symbolSize": node_size,
                     "draggable": True,
                     "tooltip": {
-                        "formatter": f"{node.name}<br>Visits: {node.n_visits}<br>Track_pos: {min(node.track_pos)}"
+                        "formatter": (
+                            f"{node.name}<br>"
+                            f"Visits: {node.n_visits}<br>"
+                            f"Track_pos: {min(node.track_pos)}"
+                        )
                     },
-                    "x": -node.shortest_to_target * 500,
+                    "x": x,
                     "y": y,
-                    "itemStyle": {
-                        "color": color
-                    },
+                    "itemStyle": {"color": color},
                 }
-                #Add border to selected nodes
+
                 if is_selected:
                     node_dict["itemStyle"].update({
                         "borderColor": CUSTOMPALETTE.SelectedBorderColor,
                         "borderWidth": 2,
                         "borderType": "solid",
-                        "opacity":1
+                        "opacity": 1,
                     })
 
                 nodes.append(node_dict)
-                # Update layout state
-                if node.name != start_node:
-                    y_cursor = y  + d
-        
+
+                if not is_start:
+                    y_cursor = y + y_gap
         
         #edge parameters
-        max_width = 75
+        max_width = max_node_size/2
         min_width = 1
         links = []
         for (src, tgt), w in edges_dict.items():
@@ -193,14 +227,14 @@ with st.expander("Graph", expanded=True):
             is_selected = (src, tgt) in selected_edges
             if not (is_filtered or is_selected):
                 continue
-            opacity = 1 if sNode == None else 0.3
+            opacity = 0.5 if sNode == None else 0.3
 
             src_dist = nodes_dict[src].shortest_to_target
             tgt_dist = nodes_dict[tgt].shortest_to_target
-
-            width = max(
-                min(max_width, w * 0.05 * (total_edge_visits) / total_edge_visits),
-                min_width
+            
+            max_weight = max(edges_dict.values())
+            width = min_width + (max_width - min_width) * (
+                (math.log1p(w) / math.log1p(max_weight)) ** 4
             )
 
             # Determine color #TODO highlight
@@ -274,12 +308,6 @@ with st.expander("Graph", expanded=True):
         displayNode = sNode if sNode is not None else start_node
         filtered = df_expanded[df_expanded["name"] == displayNode]
 
-        df_plot = (
-            filtered
-            .sort_values("position")  # ensures lowest position comes first
-            .drop_duplicates(subset=["link"], keep="first")
-        )
-
         # Map shortest distances
         filtered["src_dist"] = filtered["name"].map(
             lambda x: nodes_dict[x].shortest_to_target
@@ -290,26 +318,33 @@ with st.expander("Graph", expanded=True):
 
         # Compute direction directly
         filtered["direction"] = np.where(
-            (filtered["src_dist"] < filtered["tgt_dist"]) & (filtered["direction"] == ""),
-            "backward",
+            filtered["src_dist"] < filtered["tgt_dist"], "backward",
             np.where(
-                (filtered["src_dist"] == filtered["tgt_dist"]) & (filtered["direction"] == ""),
-                "equal",
-                np.where(
-                    (filtered["src_dist"] > filtered["tgt_dist"]) & (filtered["direction"] == ""),
-                    "forward",
-                    filtered["direction"]  # keep existing value
-                )
+                filtered["src_dist"] == filtered["tgt_dist"], "equal",
+                "forward"
             )
         )
-        
+        #Map NaN to direction
+        filtered["direction"] = np.where(
+            filtered["duplicated"] == 1,
+            "none",
+            filtered["direction"]
+        )
+
+        # max_val = filtered["n_uses"].max()
+        # filtered["n_uses"] = np.where(
+        #     filtered["duplicated"] ==1,
+        #     max_val,
+        #     filtered["n_uses"]
+        # )
+
         chart = alt.Chart(filtered).mark_bar().encode(
             x="n_uses:Q",
             y="position:O",
             color=alt.Color(
                 "direction:N",
                 scale=alt.Scale(
-                    domain=["forward", "backward", "equal", "repeated link"],
+                    domain=["forward", "backward", "equal", "none"],
                     range=[
                         CUSTOMPALETTE.ForwardColor,
                         CUSTOMPALETTE.BackwardColor,
@@ -524,7 +559,7 @@ with st.expander("Sankey", expanded=True):
 
     #control click
     if sankey_event["chart_event"]:
-        print("sankey event ", sankey_event)
+        #print("sankey event ", sankey_event)
         st.session_state.graph_selected_node = sankey_event["chart_event"]
         st.rerun()
 
