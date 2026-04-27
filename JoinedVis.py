@@ -290,22 +290,26 @@ with st.expander("Graph", expanded=True):
 
         # Compute direction directly
         filtered["direction"] = np.where(
-            filtered["src_dist"] < filtered["tgt_dist"], "backward",
+            (filtered["src_dist"] < filtered["tgt_dist"]) & (filtered["direction"] == ""),
+            "backward",
             np.where(
-                filtered["src_dist"] == filtered["tgt_dist"], "equal",
-                "forward"
+                (filtered["src_dist"] == filtered["tgt_dist"]) & (filtered["direction"] == ""),
+                "equal",
+                np.where(
+                    (filtered["src_dist"] > filtered["tgt_dist"]) & (filtered["direction"] == ""),
+                    "forward",
+                    filtered["direction"]  # keep existing value
+                )
             )
         )
         
-
-
         chart = alt.Chart(filtered).mark_bar().encode(
             x="n_uses:Q",
             y="position:O",
             color=alt.Color(
                 "direction:N",
                 scale=alt.Scale(
-                    domain=["forward", "backward", "equal", "none"],
+                    domain=["forward", "backward", "equal", "repeated link"],
                     range=[
                         CUSTOMPALETTE.ForwardColor,
                         CUSTOMPALETTE.BackwardColor,
