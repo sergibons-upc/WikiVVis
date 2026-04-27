@@ -141,9 +141,12 @@ def load_data(start_node, target_node):
                 axis=1
             )
 
-            mask = df_expanded.groupby(["name", "link"])["position"].transform("min") == df_expanded["position"]
-            df_expanded.loc[~mask, "n_uses"] = np.nan
+            
 
+            mask = df_expanded.groupby(["name", "link"])["position"].transform("min") == df_expanded["position"]
+            df_expanded["direction"] = ""
+            df_expanded.loc[~mask, "direction"] = "repeated link"
+            #not set to Nan, mark direction
 
     return thickest_of_sons, edges_dict, nodes_dict, avg_node_visits,first_nodes, max_length, total_edge_visits, article_links, df_expanded
 
