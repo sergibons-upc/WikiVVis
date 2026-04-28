@@ -94,17 +94,24 @@ def load_data(start_node, target_node):
     total_node_visits = 0 
     thickest_of_sons = 0
     thickest_son_map = defaultdict(lambda: (0, None))  # (weight, tgt)
+    thickest_parent_map = defaultdict(lambda: (0, None))  # (weight, tgt)
     for (src, tgt), w in edges_dict.items():
         current_w, _ = thickest_son_map[src]
+        current_pw, _ = thickest_parent_map[tgt]
         if w > current_w:
             thickest_son_map[src] = (w, tgt)
+        if w > current_pw:
+            thickest_parent_map[tgt] = (w,src)
         total_edge_visits += w
     avg_edge_visits = total_edge_visits/len(edges_dict.items())
     for node in nodes_dict:
         w, tgt = thickest_son_map[node]
+        pw, ptgt = thickest_parent_map[node]
         nodes_dict[node].thickest_son = tgt
+        nodes_dict[node].thickest_parent = ptgt
         nodes_dict[node].thickest_son_weight = w
-        nodes_dict[node].y_sorting = -thickest_son_map[node][0]
+        nodes_dict[node].thickest_parent_weight = pw
+        nodes_dict[node].y_sorting = -nodes_dict[node].n_visits
         thickest_of_sons = max(thickest_of_sons, w )
         total_node_visits += nodes_dict[node].n_visits
     avg_node_visits = total_node_visits/len(nodes_dict)
