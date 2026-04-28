@@ -47,6 +47,7 @@ class WikiNode:
     thickest_son_weight: int = 0
     thickest_parent_weight: int = 0
     is_target: bool = False
+    depth: int = 0
 
 ST_THEME = {
     "color": ["#000000", "#ff6b6b"],
