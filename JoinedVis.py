@@ -55,6 +55,19 @@ with st.sidebar:
         value=0,
         step=1
     )
+    option = st.selectbox(
+        "Graph y axis sorting",
+        ["Node size", "Biggest incoming edge"]#,"Biggest outcoming edge"]
+    )
+    if option == "Node size":
+        for node in nodes_dict:
+            nodes_dict[node].y_sorting = -nodes_dict[node].n_visits
+    elif option == "Biggest incoming edge":
+        for node in nodes_dict:
+            nodes_dict[node].y_sorting = -nodes_dict[node].thickest_parent_weight
+    # elif option == "Biggest outcoming edge":
+    #     for node in nodes_dict:
+    #         nodes_dict[node].y_sorting = -nodes_dict[node].thickest_son_weight
 
     # Convert percentage to actual threshold
     EdgeThicknessFilter = (flow_pct / 100) * thickest_of_sons
@@ -138,9 +151,7 @@ with st.expander("Graph", expanded=True):
         height = 100
         ratio = 12/3
 
-        y_gap = height / max_group_len
-        #print(y_gap)
-        stretch = min(max(0.5, max_group_len / 50), 10)
+
 
         all_nodes = nodes_dict.values()
         min_x = min(n.shortest_to_target for n in all_nodes)
@@ -166,7 +177,11 @@ with st.expander("Graph", expanded=True):
 
         for x_val, group_nodes in groups.items():
             y_cursor = 0
-
+            valid_y_group_nodes = [node for node in group_nodes if node.name in graph_valid_nodes]
+            if valid_y_group_nodes:
+                y_gap = height / len(valid_y_group_nodes)
+            else:
+                y_gap = height/1
             for node in group_nodes:
                 if node.name not in graph_valid_nodes:
                     continue
@@ -306,7 +321,7 @@ with st.expander("Graph", expanded=True):
 
     with col2:
         displayNode = sNode if sNode is not None else start_node
-        filtered = df_expanded[df_expanded["name"] == displayNode]
+        filtered = df_expanded[df_expanded["name"] == displayNode].copy()
 
         # Map shortest distances
         filtered["src_dist"] = filtered["name"].map(
@@ -327,7 +342,7 @@ with st.expander("Graph", expanded=True):
         #Map NaN to direction
         filtered["direction"] = np.where(
             filtered["duplicated"] == 1,
-            "none",
+            "repeated link",
             filtered["direction"]
         )
 
@@ -344,7 +359,7 @@ with st.expander("Graph", expanded=True):
             color=alt.Color(
                 "direction:N",
                 scale=alt.Scale(
-                    domain=["forward", "backward", "equal", "none"],
+                    domain=["forward", "backward", "equal", "repeated link"],
                     range=[
                         CUSTOMPALETTE.ForwardColor,
                         CUSTOMPALETTE.BackwardColor,
@@ -355,9 +370,10 @@ with st.expander("Graph", expanded=True):
             ),
             tooltip=["link", "n_uses", "direction"]
         ).properties(
-            height=600
+            height=600,
+            width=300
         )
-        st.altair_chart(chart, width='stretch')
+        st.altair_chart(chart)
 
     # --- COLUMN 2: SANKEY ---
     #with col2:
@@ -385,14 +401,11 @@ with st.expander("Sankey", expanded=True):
     #Assign values based on reverse tree:
     rev_edges = defaultdict(list)
     for (src,tgt),w in final_edges_dict.items():
-        if tgt in rev_edges:
-            rev_edges[tgt].append(src)
-        else:
-            rev_edges[tgt] = [src]
+        rev_edges[tgt].append(src)
         
     for src,tgts in rev_edges.items():
         for tgt in tgts:
-            final_nodes_dict[tgt].y_sorting = final_edges_dict[tgt,src]
+            final_nodes_dict[tgt].y_sorting = final_edges_dict[(tgt,src)]
 
     max_depth = 0
     final_nodes_dict[target_node].depth = 0
@@ -432,17 +445,59 @@ with st.expander("Sankey", expanded=True):
         return order
 
     order = bfs(target_node, rev_edges)
-
     #print(order)
+    def process_order(order, selected_node, nodes_dict, rev_edges, edges):
+        result = []
+        thickest_post = nodes_dict[selected_node].thickest_son
+        thickest_pre = max(
+            (src for (src, tgt) in edges_dict
+            if tgt == selected_node and src),
+            key=lambda src: edges_dict[src,selected_node],
+            default=None
+        )
+        [tgt for (src, tgt) in edges_dict if src == selected_node]
+        thickest_pre
+        for node in order:
+            result.append(node)
+            if node == thickest_post:
+                for afterNode in [tgt for (src, tgt) in edges_dict if src == selected_node]:
+                    if afterNode not in order:
+                        nodes_dict[afterNode].depth = nodes_dict[sNode].depth-1
+                        result.append(afterNode)
+            elif node == thickest_pre:
+                for preNode in [src for (src, tgt) in edges_dict if tgt == selected_node]:
+                    if preNode not in order:
+                        nodes_dict[preNode].depth = nodes_dict[sNode].depth+1
+                        result.append(preNode)
+
+        return result
+    
+    sankey_edges_dict = defaultdict(int)
+    if sNode != None:
+        order = process_order(order, sNode , nodes_dict, rev_edges, final_edges_dict)
+
+        sankey_edges_dict = final_edges_dict
+        for node in [src for (src, tgt) in edges_dict if tgt == sNode]:
+            sankey_edges_dict[node,sNode] = edges_dict[node,sNode]
+        for node in [tgt for (src, tgt) in edges_dict if src == sNode]:
+            sankey_edges_dict[sNode,node] = edges_dict[sNode,node]
+    else:
+        sankey_edges_dict = final_edges_dict
+    #deduplicate
+    sankey_edges_dict = list(dict.fromkeys(sankey_edges_dict.keys()))
+    order = list(dict.fromkeys(order))
+    # print("--------")
+    # print(order," \n.\n")
+    # print(sankey_edges_dict, "\n.\n")
     nodes = []
     for i,name in enumerate(order):
-        node = final_nodes_dict[name]
+        node = nodes_dict[name]
         if name in filtered_first_nodes:
             color = CUSTOMPALETTE.HighlightNodecolor
         else :
             color = CUSTOMPALETTE.BaseNodeColor
         if name == sNode:
-            color = CUSTOMPALETTE.SelectedBorderColor #Darken
+            color = CUSTOMPALETTE.SelectedBorderColor
         if name in graph_valid_nodes:
             opacity = 1
         else:
@@ -477,9 +532,9 @@ with st.expander("Sankey", expanded=True):
         else:
             opacity = 0.1
         if (src,tgt) in selected_edges:
-            if final_nodes_dict[src].shortest_to_target < final_nodes_dict[tgt].shortest_to_target:
+            if nodes_dict[src].shortest_to_target < nodes_dict[tgt].shortest_to_target:
                 color = CUSTOMPALETTE.BackwardColor
-            elif final_nodes_dict[src].shortest_to_target == final_nodes_dict[tgt].shortest_to_target:
+            elif nodes_dict[src].shortest_to_target == nodes_dict[tgt].shortest_to_target:
                 color = CUSTOMPALETTE.EqualColor
             else:
                 color = CUSTOMPALETTE.ForwardColor
@@ -557,10 +612,16 @@ with st.expander("Sankey", expanded=True):
                               #theme=ST_THEME
                               )
 
-    #control click
-    if sankey_event["chart_event"]:
-        #print("sankey event ", sankey_event)
-        st.session_state.graph_selected_node = sankey_event["chart_event"]
+    clicked = sankey_event.get("chart_event")
+    if clicked:
+        current = st.session_state.get("graph_selected_node")
+        if current == clicked:
+            # if same node clicked twice reset
+            st.session_state.graph_selected_node = None
+            st.session_state.prev_graph_selected_node = None
+        else:
+            st.session_state.prev_graph_selected_node = current
+            st.session_state.graph_selected_node = clicked
         st.rerun()
 
 with st.expander("Global chart", expanded=False):
