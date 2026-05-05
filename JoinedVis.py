@@ -455,8 +455,6 @@ with st.expander("Sankey", expanded=True):
             key=lambda src: edges_dict[src,selected_node],
             default=None
         )
-        [tgt for (src, tgt) in edges_dict if src == selected_node]
-        thickest_pre
         for node in order:
             result.append(node)
             if node == thickest_post:
@@ -474,9 +472,8 @@ with st.expander("Sankey", expanded=True):
     
     sankey_edges_dict = defaultdict(int)
     if sNode != None:
-        order = process_order(order, sNode , nodes_dict, rev_edges, final_edges_dict)
-
-        sankey_edges_dict = final_edges_dict
+        #order = process_order(order, sNode , nodes_dict, rev_edges, final_edges_dict)
+        order = [src for (src, tgt) in edges_dict if tgt == sNode]+[tgt for (src, tgt) in edges_dict if src == sNode]
         for node in [src for (src, tgt) in edges_dict if tgt == sNode]:
             sankey_edges_dict[node,sNode] = edges_dict[node,sNode]
         for node in [tgt for (src, tgt) in edges_dict if src == sNode]:
@@ -486,9 +483,8 @@ with st.expander("Sankey", expanded=True):
     #deduplicate
     sankey_edges_dict = list(dict.fromkeys(sankey_edges_dict.keys()))
     order = list(dict.fromkeys(order))
-    # print("--------")
-    # print(order," \n.\n")
-    # print(sankey_edges_dict, "\n.\n")
+
+
     nodes = []
     for i,name in enumerate(order):
         node = nodes_dict[name]
