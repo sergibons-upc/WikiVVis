@@ -12,6 +12,7 @@ import altair as alt
 from cahced_funcs import load_data
 from struct_dataclasses import WikiNode,Palette,lighten_color,ST_THEME
 import math
+import random
 
 
 st.set_page_config(layout="wide")
@@ -182,6 +183,7 @@ with st.expander("Graph", expanded=True):
                 y_gap = height / len(valid_y_group_nodes)
             else:
                 y_gap = height/1
+            jittering = 0
             for node in group_nodes:
                 if node.name not in graph_valid_nodes:
                     continue
@@ -215,7 +217,7 @@ with st.expander("Graph", expanded=True):
                             f"Track_pos: {min(node.track_pos)}"
                         )
                     },
-                    "x": x,
+                    "x": x+math.sin(jittering)*10,
                     "y": y,
                     "itemStyle": {"color": color},
                 }
@@ -229,7 +231,7 @@ with st.expander("Graph", expanded=True):
                     })
 
                 nodes.append(node_dict)
-
+                jittering += math.pi/2
                 if not is_start:
                     y_cursor = y + y_gap
         
@@ -474,14 +476,29 @@ with st.expander("Sankey", expanded=True):
     if sNode != None:
         #order = process_order(order, sNode , nodes_dict, rev_edges, final_edges_dict)
         order = [src for (src, tgt) in edges_dict if tgt == sNode]+[tgt for (src, tgt) in edges_dict if src == sNode]
+        order.append(sNode)
         for node in [src for (src, tgt) in edges_dict if tgt == sNode]:
             sankey_edges_dict[node,sNode] = edges_dict[node,sNode]
+            nodes_dict[node].depth = 2
         for node in [tgt for (src, tgt) in edges_dict if src == sNode]:
-            sankey_edges_dict[sNode,node] = edges_dict[sNode,node]
+            if (node,sNode) not in sankey_edges_dict: #TODO: WE ARE REMOVING DUPLICATES; STOP
+                sankey_edges_dict[sNode,node] = edges_dict[sNode,node]
+                nodes_dict[node].depth = 0
+            else:
+                nodeMod = node+"_copy"
+                sankey_edges_dict[sNode,nodeMod] = edges_dict[sNode,nodeMod]
+                nodes_dict[nodeMod] = nodes_dict[node]
+                nodes_dict[nodeMod].name = nodeMod
+                nodes_dict[nodeMod].depth = 2 if nodes_dict[node].depth == 2 else 0
+                order.append(nodeMod)
+
+        nodes_dict[sNode].depth = 1
     else:
         sankey_edges_dict = final_edges_dict
     #deduplicate
-    sankey_edges_dict = list(dict.fromkeys(sankey_edges_dict.keys()))
+    #print(sankey_edges_dict,end="\n---\n")
+    #sankey_edges_dict = dict.fromkeys(sankey_edges_dict.keys())
+    #print(sankey_edges_dict)
     order = list(dict.fromkeys(order))
 
 
@@ -516,51 +533,33 @@ with st.expander("Sankey", expanded=True):
                 "itemStyle": {"color": color,
                             "opacity":opacity},
                 "depth":max_depth-node.depth,
-                "tooltip": {"formatter": f"{name}<br>Visits:{node.n_visits}"}
+                "tooltip": {"formatter": f"{name}<br>Visits:{node.n_visits}, <br>Depth:{node.depth}"}
             })
 
-
     links = []
-    for (src, tgt), w in final_edges_dict.items():
-
+    for (src, tgt), w in sankey_edges_dict.items():
+        #edge priority filter highlight
         if (src,tgt) in graph_filtered_edges_dict:
             opacity = 0.9
         else:
             opacity = 0.1
-        if (src,tgt) in selected_edges:
-            if nodes_dict[src].shortest_to_target < nodes_dict[tgt].shortest_to_target:
-                color = CUSTOMPALETTE.BackwardColor
-            elif nodes_dict[src].shortest_to_target == nodes_dict[tgt].shortest_to_target:
-                color = CUSTOMPALETTE.EqualColor
-            else:
-                color = CUSTOMPALETTE.ForwardColor
-            links.append({
-                "source": src,
-                "target": tgt,
-                "value": w+3,
-                "real_value":w,
-                "lineStyle": {"color": color,
-                            "opacity":opacity,
-                            "shadowBlur": 5,
-                            "shadowColor": CUSTOMPALETTE.SelectedBorderColor
-                            },
-            })
+        #Direction color
+        if nodes_dict[src].shortest_to_target < nodes_dict[tgt].shortest_to_target:
+            color = CUSTOMPALETTE.BackwardColor
+        elif nodes_dict[src].shortest_to_target == nodes_dict[tgt].shortest_to_target:
+            color = CUSTOMPALETTE.EqualColor
         else:
-            if final_nodes_dict[src].shortest_to_target < final_nodes_dict[tgt].shortest_to_target:
-                color = CUSTOMPALETTE.BackwardColor
-            elif final_nodes_dict[src].shortest_to_target == final_nodes_dict[tgt].shortest_to_target:
-                color = CUSTOMPALETTE.EqualColor
-            else:
-                color = CUSTOMPALETTE.ForwardColor
-            links.append({
-                "source": src,
-                "target": tgt,
-                "value": w+3,
-                "real_value":w,
-                "lineStyle": {"color": color,
-                            "opacity":opacity,
-                            },
-            })
+            color = CUSTOMPALETTE.ForwardColor
+
+        links.append({
+            "source": src,
+            "target": tgt,
+            "value": w+3,
+            "real_value":w,
+            "lineStyle": {"color": color,
+                        "opacity":opacity,
+                        },
+        })
 
     #function to display real weight without added value
     tooltip_formatter = JsCode("""
@@ -583,7 +582,7 @@ with st.expander("Sankey", expanded=True):
                 "data": nodes,
                 "links": links,
                 "nodeGap": 30,  
-                "layoutIterations": 0,
+                "layoutIterations": 0 if sNode == None else 10,
                 "emphasis": {
                     "focus": "adjacency"
                 },
