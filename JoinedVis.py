@@ -13,6 +13,7 @@ from cahced_funcs import load_data
 from struct_dataclasses import WikiNode,Palette,lighten_color,ST_THEME
 import math
 import random
+import copy
 
 
 st.set_page_config(layout="wide")
@@ -231,7 +232,7 @@ with st.expander("Graph", expanded=True):
                     })
 
                 nodes.append(node_dict)
-                jittering += math.pi/2
+                jittering += math.pi/3
                 if not is_start:
                     y_cursor = y + y_gap
         
@@ -479,17 +480,22 @@ with st.expander("Sankey", expanded=True):
         order.append(sNode)
         for node in [src for (src, tgt) in edges_dict if tgt == sNode]:
             sankey_edges_dict[node,sNode] = edges_dict[node,sNode]
-            nodes_dict[node].depth = 2
+            nodes_dict[node].depth = 0
         for node in [tgt for (src, tgt) in edges_dict if src == sNode]:
             if (node,sNode) not in sankey_edges_dict: #TODO: WE ARE REMOVING DUPLICATES; STOP
                 sankey_edges_dict[sNode,node] = edges_dict[sNode,node]
-                nodes_dict[node].depth = 0
+                nodes_dict[node].depth = 2
             else:
                 nodeMod = node+"_copy"
-                sankey_edges_dict[sNode,nodeMod] = edges_dict[sNode,nodeMod]
-                nodes_dict[nodeMod] = nodes_dict[node]
+                sankey_edges_dict[sNode,nodeMod] = edges_dict[sNode,node]
+                nodes_dict[nodeMod] = copy.deepcopy(nodes_dict[node])
                 nodes_dict[nodeMod].name = nodeMod
-                nodes_dict[nodeMod].depth = 2 if nodes_dict[node].depth == 2 else 0
+                if nodes_dict[node].depth == 2:
+                    nodes_dict[nodeMod].depth = 0
+                else:
+                    nodes_dict[nodeMod].depth = 2
+                graph_selected_nodes.add(nodeMod)
+                graph_filtered_edges_dict[(sNode,nodeMod)] =  edges_dict[sNode,node]
                 order.append(nodeMod)
 
         nodes_dict[sNode].depth = 1
@@ -515,6 +521,7 @@ with st.expander("Sankey", expanded=True):
             opacity = 1
         else:
             opacity = 0.1
+        depth = (max_depth-node.depth) if sNode == None else 2,
         if name in graph_selected_nodes:
             nodes.append({
                 "name": name,
@@ -524,25 +531,25 @@ with st.expander("Sankey", expanded=True):
                             "borderWidth": 3,
                             "borderType": "solid"   
                             },
-                "depth":max_depth-node.depth,
-                "tooltip": {"formatter": f"{name}<br>Visits:{node.n_visits}"}
+                "depth":node.depth,
+                "tooltip": {"formatter": f"{name}<br>Visits:{node.n_visits}, <br>Depth:{node.depth}"}
             })
         else:
             nodes.append({
                 "name": name,
                 "itemStyle": {"color": color,
                             "opacity":opacity},
-                "depth":max_depth-node.depth,
+                "depth":depth,
                 "tooltip": {"formatter": f"{name}<br>Visits:{node.n_visits}, <br>Depth:{node.depth}"}
             })
-
+        print(name,":",max_depth,":",depth, end=" , ")
+    print("---")
     links = []
     for (src, tgt), w in sankey_edges_dict.items():
         #edge priority filter highlight
-        if (src,tgt) in graph_filtered_edges_dict:
-            opacity = 0.9
-        else:
-            opacity = 0.1
+       
+        opacity = 0.9  if (src,tgt) in graph_filtered_edges_dict else 0.1
+        weight = w if (src,tgt) in graph_filtered_edges_dict else w+3
         #Direction color
         if nodes_dict[src].shortest_to_target < nodes_dict[tgt].shortest_to_target:
             color = CUSTOMPALETTE.BackwardColor
@@ -554,7 +561,7 @@ with st.expander("Sankey", expanded=True):
         links.append({
             "source": src,
             "target": tgt,
-            "value": w+3,
+            "value": weight,
             "real_value":w,
             "lineStyle": {"color": color,
                         "opacity":opacity,
@@ -581,7 +588,7 @@ with st.expander("Sankey", expanded=True):
                 "nodeAlign": "right",
                 "data": nodes,
                 "links": links,
-                "nodeGap": 30,  
+                "nodeGap": 10,  
                 "layoutIterations": 0 if sNode == None else 10,
                 "emphasis": {
                     "focus": "adjacency"
