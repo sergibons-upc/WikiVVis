@@ -25,10 +25,10 @@ CUSTOMPALETTE = Palette()
 EdgeThicknessFilter = 0
 NodeVisitFilter = 0
 
-#start_node = "Asteroid"
-#target_node = "Viking"
-start_node = "Brain"
-target_node = "Telephone"
+start_node = "Asteroid"
+target_node = "Viking"
+#start_node = "Brain"
+#target_node = "Telephone"
 
 # Initialize Session State for Interaction
 if 'graph_selected_node' not in st.session_state:
@@ -183,8 +183,8 @@ with st.expander("Graph", expanded=True):
             if valid_y_group_nodes:
                 y_gap = height / len(valid_y_group_nodes)
             else:
-                y_gap = height/1
-            jittering = 0
+                y_gap = height
+            jittering = math.pi/2
             for node in group_nodes:
                 if node.name not in graph_valid_nodes:
                     continue
@@ -218,7 +218,7 @@ with st.expander("Graph", expanded=True):
                             f"Track_pos: {min(node.track_pos)}"
                         )
                     },
-                    "x": x+math.sin(jittering)*40,
+                    "x": x if is_start else (x+math.sin(jittering)*30),
                     "y": y,
                     "itemStyle": {"color": color},
                 }
@@ -348,13 +348,6 @@ with st.expander("Graph", expanded=True):
             "repeated link",
             filtered["direction"]
         )
-
-        # max_val = filtered["n_uses"].max()
-        # filtered["n_uses"] = np.where(
-        #     filtered["duplicated"] ==1,
-        #     max_val,
-        #     filtered["n_uses"]
-        # )
 
         chart = alt.Chart(filtered).mark_bar().encode(
             x="n_uses:Q",
