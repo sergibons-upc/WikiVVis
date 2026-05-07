@@ -218,7 +218,7 @@ with st.expander("Graph", expanded=True):
                             f"Track_pos: {min(node.track_pos)}"
                         )
                     },
-                    "x": x+math.sin(jittering)*10,
+                    "x": x+math.sin(jittering)*40,
                     "y": y,
                     "itemStyle": {"color": color},
                 }
@@ -232,7 +232,7 @@ with st.expander("Graph", expanded=True):
                     })
 
                 nodes.append(node_dict)
-                jittering += math.pi/3
+                jittering += math.pi/13#1.7
                 if not is_start:
                     y_cursor = y + y_gap
         
@@ -475,9 +475,9 @@ with st.expander("Sankey", expanded=True):
     
     sankey_edges_dict = defaultdict(int)
     if sNode != None:
-        #order = process_order(order, sNode , nodes_dict, rev_edges, final_edges_dict)
-        order = [src for (src, tgt) in edges_dict if tgt == sNode]+[tgt for (src, tgt) in edges_dict if src == sNode]
-        order.append(sNode)
+        incos = [src for (src, tgt) in edges_dict if tgt == sNode]
+        outcos = [tgt for (src, tgt) in edges_dict if src == sNode]
+        
         for node in [src for (src, tgt) in edges_dict if tgt == sNode]:
             sankey_edges_dict[node,sNode] = edges_dict[node,sNode]
             nodes_dict[node].depth = 0
@@ -495,16 +495,15 @@ with st.expander("Sankey", expanded=True):
                 else:
                     nodes_dict[nodeMod].depth = 2
                 graph_selected_nodes.add(nodeMod)
-                graph_filtered_edges_dict[(sNode,nodeMod)] =  edges_dict[sNode,node]
-                order.append(nodeMod)
-
+                #graph_filtered_edges_dict[(sNode,nodeMod)] =  copy.deepcopy(edges_dict[sNode,node])
+                outcos.append(nodeMod)
+                graph_valid_nodes.add(nodeMod)
         nodes_dict[sNode].depth = 1
+        incos.append(sNode)
+        order = incos+outcos
     else:
         sankey_edges_dict = final_edges_dict
-    #deduplicate
-    #print(sankey_edges_dict,end="\n---\n")
-    #sankey_edges_dict = dict.fromkeys(sankey_edges_dict.keys())
-    #print(sankey_edges_dict)
+
     order = list(dict.fromkeys(order))
 
 
@@ -542,13 +541,10 @@ with st.expander("Sankey", expanded=True):
                 "depth":depth,
                 "tooltip": {"formatter": f"{name}<br>Visits:{node.n_visits}, <br>Depth:{node.depth}"}
             })
-        print(name,":",max_depth,":",depth, end=" , ")
-    print("---")
     links = []
     for (src, tgt), w in sankey_edges_dict.items():
         #edge priority filter highlight
-       
-        opacity = 0.9  if (src,tgt) in graph_filtered_edges_dict else 0.1
+        opacity = 0.9  if (src,tgt) in graph_filtered_edges_dict else 0.3
         weight = w if (src,tgt) in graph_filtered_edges_dict else w+3
         #Direction color
         if nodes_dict[src].shortest_to_target < nodes_dict[tgt].shortest_to_target:
