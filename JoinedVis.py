@@ -11,16 +11,22 @@ from pathlib import Path
 import altair as alt
 from cahced_funcs import load_data
 from struct_dataclasses import WikiNode,Palette,lighten_color,ST_THEME
+from streamlit_vega_lite import altair_component
 import math
 import random
 import copy
 
 
 st.set_page_config(layout="wide")
+#TODO: Add axes
+# Add direction selector
+# Personal track highlight
+# Sinal y axis label
+# Column x label
+# Altair empty bars
+# Fix slider
 
-#TODO:
-#Recursive Sankey?
-#Fixing global count appearances
+
 CUSTOMPALETTE = Palette()
 EdgeThicknessFilter = 0
 NodeVisitFilter = 0
@@ -203,9 +209,10 @@ with st.expander("Graph", expanded=True):
 
                 color = compute_color(node, base_color)
                 # Position
-                y = -node_size/2 if is_start else y_cursor + y_gap
+                y = -node_size*2 if is_start else y_cursor + y_gap
                 # X scaling
-                x = -((node.shortest_to_target - min_x) / x_range) * height * ratio
+                x = (-((node.shortest_to_target - min_x) / x_range) * height * ratio) 
+                x = x if is_start else (x+math.sin(jittering)*30)
 
                 node_dict = {
                     "name": node.name,
@@ -218,7 +225,7 @@ with st.expander("Graph", expanded=True):
                             f"Track_pos: {min(node.track_pos)}"
                         )
                     },
-                    "x": x if is_start else (x+math.sin(jittering)*30),
+                    "x": x,
                     "y": y,
                     "itemStyle": {"color": color},
                 }
@@ -232,7 +239,7 @@ with st.expander("Graph", expanded=True):
                     })
 
                 nodes.append(node_dict)
-                jittering += math.pi/13#1.7
+                jittering += math.pi/13#73#*y_gap#1.7
                 if not is_start:
                     y_cursor = y + y_gap
         
@@ -255,7 +262,7 @@ with st.expander("Graph", expanded=True):
                 (math.log1p(w) / math.log1p(max_weight)) ** 4
             )
 
-            # Determine color #TODO highlight
+            # Determine color
             if src_dist < tgt_dist:
                 color =  CUSTOMPALETTE.BackwardColor
             elif src_dist == tgt_dist:
@@ -348,28 +355,70 @@ with st.expander("Graph", expanded=True):
             "repeated link",
             filtered["direction"]
         )
-
+        selection = alt.selection_point(
+            name="point",
+            fields=["link"]
+        )
+        color_scale = alt.Scale(
+            domain=["forward", "backward", "equal", "repeated link"],
+            range=[
+                CUSTOMPALETTE.ForwardColor,
+                CUSTOMPALETTE.BackwardColor,
+                CUSTOMPALETTE.EqualColor,
+                CUSTOMPALETTE.OccluddedColor
+            ]
+        )
         chart = alt.Chart(filtered).mark_bar().encode(
             x="n_uses:Q",
             y="position:O",
+
             color=alt.Color(
                 "direction:N",
-                scale=alt.Scale(
-                    domain=["forward", "backward", "equal", "repeated link"],
-                    range=[
-                        CUSTOMPALETTE.ForwardColor,
-                        CUSTOMPALETTE.BackwardColor,
-                        CUSTOMPALETTE.EqualColor,
-                        "lightgray"
-                    ]
-                )
+                scale=color_scale
+            ),
+
+            stroke=alt.Color(
+                "direction:N",
+                scale=color_scale,
+                legend=None
+            ),
+
+            fillOpacity=alt.condition(
+                alt.datum.direction == "repeated link",
+                alt.value(0),
+                alt.value(1)
             ),
             tooltip=["link", "n_uses", "direction"]
         ).properties(
             height=600,
             width=300
+        ).add_params(selection)
+
+        event = st.altair_chart(
+            chart,
+            on_select="rerun",
+            selection_mode="point"
         )
-        st.altair_chart(chart)
+
+        clicked = None
+        if event.selection.point:
+            clicked = event.selection.point[0]["link"]
+        
+        if clicked is not None:
+            print(event)
+            current = st.session_state.get("graph_selected_node")
+
+            if current == clicked:
+                # same node clicked twice -> unselect
+                st.session_state.graph_selected_node = None
+                st.session_state.prev_graph_selected_node = None
+
+            else:
+                st.session_state.prev_graph_selected_node = current
+                st.session_state.graph_selected_node = clicked
+
+            st.rerun()
+
 
     # --- COLUMN 2: SANKEY ---
     #with col2:
@@ -475,7 +524,7 @@ with st.expander("Sankey", expanded=True):
             sankey_edges_dict[node,sNode] = edges_dict[node,sNode]
             nodes_dict[node].depth = 0
         for node in [tgt for (src, tgt) in edges_dict if src == sNode]:
-            if (node,sNode) not in sankey_edges_dict: #TODO: WE ARE REMOVING DUPLICATES; STOP
+            if (node,sNode) not in sankey_edges_dict:
                 sankey_edges_dict[sNode,node] = edges_dict[sNode,node]
                 nodes_dict[node].depth = 2
             else:
@@ -587,7 +636,7 @@ with st.expander("Sankey", expanded=True):
                 },
                 "label": {
                     "show": True,
-                    "color": "#000"
+                    "color": "#fff"
                 }
             }
         ]
